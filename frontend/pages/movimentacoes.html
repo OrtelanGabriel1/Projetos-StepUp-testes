@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Movimentações — StepUp Calçados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+</head>
+<body>
+<div id="sidebar-mount"></div>
+<div class="app-shell">
+  <div class="main-content">
+    <div id="topbar-mount"></div>
+    <div class="page-content">
+      <div class="page-header">
+        <div class="page-header-info">
+          <h2>Movimentações de Estoque</h2>
+          <p>Entradas e saídas de produtos no estoque</p>
+        </div>
+        <button class="btn btn-primary" onclick="abrirNovo()">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nova Movimentação
+        </button>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom:20px">
+        <div class="stat-card">
+          <div class="stat-icon green">📥</div>
+          <div><div class="stat-value" id="total-entrada">0</div><div class="stat-label">Total Entradas</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon red">📤</div>
+          <div><div class="stat-value" id="total-saida">0</div><div class="stat-label">Total Saídas</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon blue">🔄</div>
+          <div><div class="stat-value" id="total-mov">0</div><div class="stat-label">Total Movimentações</div></div>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <input type="text" class="form-control" id="search" placeholder="🔍 Buscar produto...">
+        <select class="form-control" id="filter-tipo">
+          <option value="">Todos os tipos</option>
+          <option value="entrada">Entrada</option>
+          <option value="saida">Saída</option>
+          <option value="ajuste">Ajuste</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Tipo</th><th>Produto</th><th>Quantidade</th><th>Motivo</th><th>Data</th></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div id="pagination"></div>
+        <div id="empty"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h3 class="modal-title">Nova Movimentação</h3>
+      <button class="modal-close" onclick="closeModal('modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Tipo *</label>
+          <select class="form-control" id="f-tipo">
+            <option value="">Selecione o tipo</option>
+            <option value="entrada">📥 Entrada</option>
+            <option value="saida">📤 Saída</option>
+            <option value="ajuste">🔧 Ajuste</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Produto *</label>
+          <select class="form-control" id="f-produto"></select>
+        </div>
+        <div class="form-group">
+          <label>Quantidade *</label>
+          <input type="number" class="form-control" id="f-qtd" min="1" placeholder="0">
+        </div>
+        <div class="form-group">
+          <label>Motivo</label>
+          <input type="text" class="form-control" id="f-motivo" placeholder="Ex: Reposição de estoque, Venda, Devolução...">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save" onclick="salvar()">Registrar</button>
+    </div>
+  </div>
+</div>
+<div id="toast-container" class="toast-container"></div>
+
+<script src="../js/api.js"></script>
+<script src="../js/ui.js"></script>
+<script>
+  checkAuth();
+  document.getElementById('sidebar-mount').innerHTML = buildSidebar('movimentacoes');
+  document.getElementById('topbar-mount').innerHTML = buildTopbar('Movimentações de Estoque');
+  populateUser(checkAuth());
+  initSidebar();
+
+  let all = [], allProdutos = [], page = 1;
+
+  async function load() {
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="6"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>';
+    try {
+      const [mr, pr] = await Promise.all([api.movimentacoes.listar(), api.produtos.listar()]);
+      all = mr?.dados || mr || [];
+      allProdutos = pr?.dados || pr || [];
+      popularProdutos();
+      atualizarStats();
+      render();
+    } catch(e) { toast('Erro: ' + e.message, 'error'); }
+  }
+
+  function popularProdutos() {
+    const sel = document.getElementById('f-produto');
+    sel.innerHTML = '<option value="">Selecione um produto</option>';
+    allProdutos.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.nome}</option>`);
+  }
+
+  function getNomeProduto(id) {
+    const p = allProdutos.find(x => x.id == id);
+    return p?.nome || `Produto #${id}`;
+  }
+
+  function atualizarStats() {
+    const entradas = all.filter(m => m.tipo === 'entrada').length;
+    const saidas   = all.filter(m => m.tipo === 'saida').length;
+    document.getElementById('total-entrada').textContent = entradas;
+    document.getElementById('total-saida').textContent   = saidas;
+    document.getElementById('total-mov').textContent     = all.length;
+  }
+
+  function tipoBadge(t) {
+    if (t === 'entrada') return '<span class="badge badge-green">📥 Entrada</span>';
+    if (t === 'saida')   return '<span class="badge badge-red">📤 Saída</span>';
+    return '<span class="badge badge-yellow">🔧 Ajuste</span>';
+  }
+
+  function filtered() {
+    const q  = document.getElementById('search').value.toLowerCase();
+    const tp = document.getElementById('filter-tipo').value;
+    return all.filter(m => {
+      const nome = getNomeProduto(m.id_produto).toLowerCase();
+      return (!q || nome.includes(q)) && (!tp || m.tipo === tp);
+    });
+  }
+
+  function render() {
+    const items = filtered();
+    const { items: pg, total, pages } = paginate(items, page);
+    const tbody = document.getElementById('tbody');
+    if (!pg.length) {
+      tbody.innerHTML = '';
+      document.getElementById('empty').innerHTML = `<div class="empty-state"><div class="es-icon">🔄</div><h3>Nenhuma movimentação encontrada</h3></div>`;
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+    document.getElementById('empty').innerHTML = '';
+    tbody.innerHTML = pg.map(m => `<tr>
+      <td><span style="color:var(--gray-400);font-size:.8rem">#${m.id}</span></td>
+      <td>${tipoBadge(m.tipo)}</td>
+      <td><strong>${getNomeProduto(m.id_produto)}</strong></td>
+      <td><strong style="font-size:1rem;color:${m.tipo==='entrada'?'var(--green-500)':'var(--red-500)'}">${m.tipo==='entrada'?'+':'−'}${m.quantidade}</strong></td>
+      <td style="color:var(--gray-600)">${m.motivo||m.descricao||'-'}</td>
+      <td style="color:var(--gray-400);font-size:.8rem">${dateTimeStr(m.created_at||m.data)}</td>
+    </tr>`).join('');
+    renderPagination(document.getElementById('pagination'), { total, page, pages, onPage: p => { page=p; render(); }});
+  }
+
+  document.getElementById('search').addEventListener('input', () => { page=1; render(); });
+  document.getElementById('filter-tipo').addEventListener('change', () => { page=1; render(); });
+
+  function abrirNovo() {
+    document.getElementById('f-tipo').value    = '';
+    document.getElementById('f-produto').value = '';
+    document.getElementById('f-qtd').value     = '';
+    document.getElementById('f-motivo').value  = '';
+    openModal('modal');
+  }
+
+  async function salvar() {
+    const tipo       = document.getElementById('f-tipo').value;
+    const id_produto = parseInt(document.getElementById('f-produto').value);
+    const quantidade = parseInt(document.getElementById('f-qtd').value);
+    const motivo     = document.getElementById('f-motivo').value.trim() || undefined;
+    if (!tipo || !id_produto || !quantidade) { toast('Preencha tipo, produto e quantidade.', 'warning'); return; }
+    const btn = document.getElementById('btn-save');
+    btn.disabled = true; btn.textContent = 'Registrando...';
+    try {
+      await api.movimentacoes.registrar({ tipo, id_produto, quantidade, motivo });
+      toast('Movimentação registrada!', 'success');
+      closeModal('modal');
+      load();
+    } catch(e) { toast('Erro: ' + e.message, 'error');
+    } finally { btn.disabled = false; btn.textContent = 'Registrar'; }
+  }
+
+  load();
+</script>
+</body>
+</html>

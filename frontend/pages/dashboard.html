@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — StepUp Calçados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+  <style>
+    .welcome-banner {
+      background: linear-gradient(135deg, var(--blue-700), var(--blue-500));
+      border-radius: 14px;
+      padding: 28px 32px;
+      color: var(--white);
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .welcome-banner h2 { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
+    .welcome-banner p { font-size: .875rem; opacity: .85; }
+    .welcome-emoji { font-size: 56px; opacity: .7; }
+    .grids-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .alert-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .alert-item:last-child { border-bottom: none; }
+    .alert-product { font-size: .875rem; font-weight: 600; color: var(--gray-800); }
+    .alert-qty { font-size: .8rem; color: var(--gray-600); margin-top: 2px; }
+    .recent-sale { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--gray-100); }
+    .recent-sale:last-child { border-bottom: none; }
+    .sale-id { font-size: .875rem; font-weight: 600; color: var(--gray-800); }
+    .sale-date { font-size: .75rem; color: var(--gray-400); }
+    .sale-value { font-size: .875rem; font-weight: 700; color: var(--blue-700); }
+    @media (max-width: 768px) { .grids-2 { grid-template-columns: 1fr; } .welcome-emoji { display: none; } }
+  </style>
+</head>
+<body>
+  <div id="sidebar-mount"></div>
+  <div class="app-shell">
+    <div class="main-content" id="main-mount">
+      <div id="topbar-mount"></div>
+      <div class="page-content" id="page-root"></div>
+    </div>
+  </div>
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="../js/api.js"></script>
+  <script src="../js/ui.js"></script>
+  <script>
+    const user = checkAuth();
+    document.getElementById('sidebar-mount').innerHTML = buildSidebar('dashboard');
+    document.getElementById('topbar-mount').innerHTML = buildTopbar('Dashboard');
+    populateUser(user);
+    initSidebar();
+
+    const root = document.getElementById('page-root');
+
+    async function loadDashboard() {
+      root.innerHTML = `
+        <div class="welcome-banner">
+          <div>
+            <h2>Olá, ${user?.nome?.split(' ')[0] || 'bem-vindo'}! 👋</h2>
+            <p>Aqui está um resumo do que está acontecendo na sua loja hoje.</p>
+          </div>
+          <div class="welcome-emoji">👟</div>
+        </div>
+        <div class="stats-grid" id="stats-grid">
+          ${[1,2,3,4].map(()=>'<div class="stat-card"><div class="loading-overlay"><div class="spinner"></div></div></div>').join('')}
+        </div>
+        <div class="grids-2">
+          <div class="card">
+            <div class="card-header"><span class="card-title">⚠️ Estoque Baixo</span></div>
+            <div class="card-body" id="alert-list"><div class="loading-overlay"><div class="spinner"></div></div></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">🛍️ Vendas Recentes</span></div>
+            <div class="card-body" id="sales-list"><div class="loading-overlay"><div class="spinner"></div></div></div>
+          </div>
+        </div>`;
+
+      try {
+        const [produtos, estoques, vendas, estoqueBaixo] = await Promise.allSettled([
+          api.produtos.listar(),
+          api.estoque.listar(),
+          api.vendas.listar(),
+          api.estoque.baixo(),
+        ]);
+
+        const prods = produtos.value?.dados || produtos.value || [];
+        const estqs = estoques.value?.dados || estoques.value || [];
+        const vends = vendas.value?.dados || vendas.value || [];
+        const baixo = estoqueBaixo.value?.dados || estoqueBaixo.value || [];
+
+        const totalVendas = vends.reduce((s, v) => s + parseFloat(v.valor_total || 0), 0);
+
+        document.getElementById('stats-grid').innerHTML = `
+          <div class="stat-card">
+            <div class="stat-icon blue">📦</div>
+            <div><div class="stat-value">${Array.isArray(prods) ? prods.length : 0}</div><div class="stat-label">Produtos Cadastrados</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green">✅</div>
+            <div><div class="stat-value">${Array.isArray(estqs) ? estqs.length : 0}</div><div class="stat-label">Itens em Estoque</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon yellow">🛍️</div>
+            <div><div class="stat-value">${Array.isArray(vends) ? vends.length : 0}</div><div class="stat-label">Total de Vendas</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon ${Array.isArray(baixo) && baixo.length > 0 ? 'red' : 'green'}">⚠️</div>
+            <div><div class="stat-value">${Array.isArray(baixo) ? baixo.length : 0}</div><div class="stat-label">Alertas de Estoque</div></div>
+          </div>`;
+
+        const alertList = document.getElementById('alert-list');
+        if (!Array.isArray(baixo) || baixo.length === 0) {
+          alertList.innerHTML = `<div class="empty-state" style="padding:24px"><div class="es-icon">✅</div><h3>Estoque OK</h3><p>Nenhum alerta de estoque baixo.</p></div>`;
+        } else {
+          alertList.innerHTML = baixo.slice(0, 6).map(e => `
+            <div class="alert-item">
+              <div>
+                <div class="alert-product">${e.nome_produto || e.id_produto || 'Produto'}</div>
+                <div class="alert-qty">Quantidade: <strong>${e.quantidade}</strong> | Mínimo: ${e.quantidade_minima ?? '-'}</div>
+              </div>
+              <span class="badge badge-red">Baixo</span>
+            </div>`).join('');
+        }
+
+        const salesList = document.getElementById('sales-list');
+        if (!Array.isArray(vends) || vends.length === 0) {
+          salesList.innerHTML = `<div class="empty-state" style="padding:24px"><div class="es-icon">🛍️</div><h3>Sem vendas</h3><p>Nenhuma venda registrada ainda.</p></div>`;
+        } else {
+          salesList.innerHTML = vends.slice(0, 6).map(v => `
+            <div class="recent-sale">
+              <div>
+                <div class="sale-id">Venda #${v.id}</div>
+                <div class="sale-date">${dateTimeStr(v.data_venda || v.created_at)}</div>
+              </div>
+              <div class="sale-value">${brl(v.valor_total)}</div>
+            </div>`).join('');
+        }
+      } catch(err) {
+        toast('Erro ao carregar dados: ' + err.message, 'error');
+      }
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

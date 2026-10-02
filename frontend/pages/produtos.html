@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Produtos — StepUp Calçados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+</head>
+<body>
+<div id="sidebar-mount"></div>
+<div class="app-shell">
+  <div class="main-content">
+    <div id="topbar-mount"></div>
+    <div class="page-content">
+
+      <div class="page-header">
+        <div class="page-header-info">
+          <h2>Produtos</h2>
+          <p>Gerencie o catálogo de calçados da loja</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" onclick="openModal('modal-produto')">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo Produto
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <input type="text" class="form-control" id="search-input" placeholder="🔍 Buscar produto...">
+        <select class="form-control" id="filter-categoria">
+          <option value="">Todas as categorias</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Produto</th>
+                <th>Categoria</th>
+                <th>Preço</th>
+                <th>Tamanho</th>
+                <th>Cor</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+        <div id="pagination"></div>
+        <div id="empty-state"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRODUTO -->
+<div class="modal-overlay" id="modal-produto">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modal-title">Novo Produto</h3>
+      <button class="modal-close" onclick="closeModal('modal-produto')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Nome do Produto *</label>
+          <input type="text" class="form-control" id="f-nome" placeholder="Ex: Tênis Air Max">
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label>Preço (R$) *</label>
+            <input type="number" class="form-control" id="f-preco" placeholder="0,00" step="0.01" min="0">
+          </div>
+          <div class="form-group">
+            <label>Categoria *</label>
+            <select class="form-control" id="f-categoria"></select>
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label>Tamanho</label>
+            <input type="text" class="form-control" id="f-tamanho" placeholder="Ex: 40, 42, G">
+          </div>
+          <div class="form-group">
+            <label>Cor</label>
+            <input type="text" class="form-control" id="f-cor" placeholder="Ex: Preto, Branco">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descrição</label>
+          <textarea class="form-control" id="f-descricao" rows="3" placeholder="Descrição do produto..."></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-produto')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM -->
+<div class="modal-overlay" id="confirm-overlay">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-body" style="text-align:center;padding:32px 24px">
+      <div style="font-size:40px;margin-bottom:12px">🗑️</div>
+      <strong style="display:block;font-size:1rem;margin-bottom:8px">Excluir Produto</strong>
+      <p class="confirm-text" id="confirm-text">Tem certeza?</p>
+    </div>
+    <div class="modal-footer" style="justify-content:center">
+      <button class="btn btn-outline" onclick="closeModal('confirm-overlay')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-ok">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" class="toast-container"></div>
+
+<script src="../js/api.js"></script>
+<script src="../js/ui.js"></script>
+<script>
+  const user = checkAuth();
+  document.getElementById('sidebar-mount').innerHTML = buildSidebar('produtos');
+  document.getElementById('topbar-mount').innerHTML = buildTopbar('Produtos');
+  populateUser(user);
+  initSidebar();
+
+  let allProdutos = [], allCategorias = [], currentId = null, page = 1;
+
+  async function load() {
+    const tbody = document.getElementById('table-body');
+    setLoading({ innerHTML: '' }, '');
+    tbody.innerHTML = '<tr><td colspan="7"><div class="loading-overlay"><div class="spinner"></div></div></td></tr>';
+
+    try {
+      const [pr, cat] = await Promise.all([api.produtos.listar(), api.categorias.listar()]);
+      allProdutos   = pr?.dados  || pr  || [];
+      allCategorias = cat?.dados || cat || [];
+      populateCatFilter();
+      render();
+    } catch(e) { toast('Erro ao carregar produtos: ' + e.message, 'error'); }
+  }
+
+  function populateCatFilter() {
+    const sel = document.getElementById('filter-categoria');
+    const fSel = document.getElementById('f-categoria');
+    allCategorias.forEach(c => {
+      sel.innerHTML += `<option value="${c.id}">${c.nome}</option>`;
+      fSel.innerHTML += `<option value="${c.id}">${c.nome}</option>`;
+    });
+  }
+
+  function getFiltered() {
+    const q   = document.getElementById('search-input').value.toLowerCase();
+    const cat = document.getElementById('filter-categoria').value;
+    return allProdutos.filter(p =>
+      (!q   || (p.nome||'').toLowerCase().includes(q)) &&
+      (!cat || String(p.id_categoria) === String(cat))
+    );
+  }
+
+  function render() {
+    const filtered = getFiltered();
+    const { items, total, pages } = paginate(filtered, page);
+    const tbody = document.getElementById('table-body');
+    const empty = document.getElementById('empty-state');
+
+    if (items.length === 0) {
+      tbody.innerHTML = '';
+      empty.innerHTML = `<div class="empty-state"><div class="es-icon">👟</div><h3>Nenhum produto encontrado</h3><p>Cadastre o primeiro produto ou ajuste os filtros.</p></div>`;
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+    empty.innerHTML = '';
+    tbody.innerHTML = items.map(p => {
+      const cat = allCategorias.find(c => c.id == p.id_categoria);
+      return `<tr>
+        <td><span style="color:var(--gray-400);font-size:.8rem">#${p.id}</span></td>
+        <td><strong>${p.nome || '-'}</strong><div style="font-size:.75rem;color:var(--gray-400);margin-top:2px">${(p.descricao||'').slice(0,40)}${(p.descricao||'').length>40?'…':''}</div></td>
+        <td>${cat ? `<span class="badge badge-blue">${cat.nome}</span>` : '-'}</td>
+        <td><strong>${brl(p.preco)}</strong></td>
+        <td>${p.tamanho || '-'}</td>
+        <td>${p.cor || '-'}</td>
+        <td class="td-actions">
+          <button class="btn btn-outline btn-sm" onclick="editar(${p.id})">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="excluir(${p.id}, '${(p.nome||'').replace(/'/g,"\\'")}')">🗑️</button>
+        </td>
+      </tr>`;
+    }).join('');
+    renderPagination(document.getElementById('pagination'), { total, page, pages, onPage: p => { page = p; render(); } });
+  }
+
+  document.getElementById('search-input').addEventListener('input', () => { page=1; render(); });
+  document.getElementById('filter-categoria').addEventListener('change', () => { page=1; render(); });
+
+  function novoForm() {
+    currentId = null;
+    document.getElementById('modal-title').textContent = 'Novo Produto';
+    ['nome','preco','tamanho','cor','descricao'].forEach(f => document.getElementById('f-'+f).value = '');
+    document.getElementById('f-categoria').value = '';
+  }
+
+  async function editar(id) {
+    try {
+      const data = await api.produtos.buscar(id);
+      const p = data?.dados || data;
+      currentId = id;
+      document.getElementById('modal-title').textContent = 'Editar Produto';
+      document.getElementById('f-nome').value      = p.nome      || '';
+      document.getElementById('f-preco').value     = p.preco     || '';
+      document.getElementById('f-tamanho').value   = p.tamanho   || '';
+      document.getElementById('f-cor').value       = p.cor       || '';
+      document.getElementById('f-descricao').value = p.descricao || '';
+      document.getElementById('f-categoria').value = p.id_categoria || '';
+      openModal('modal-produto');
+    } catch(e) { toast('Erro ao carregar produto: ' + e.message, 'error'); }
+  }
+
+  document.querySelector('[onclick="openModal(\'modal-produto\')"]').addEventListener('click', novoForm, { once: false });
+
+  async function salvar() {
+    const body = {
+      nome:         document.getElementById('f-nome').value.trim(),
+      preco:        parseFloat(document.getElementById('f-preco').value),
+      tamanho:      document.getElementById('f-tamanho').value.trim() || undefined,
+      cor:          document.getElementById('f-cor').value.trim()     || undefined,
+      descricao:    document.getElementById('f-descricao').value.trim()|| undefined,
+      id_categoria: parseInt(document.getElementById('f-categoria').value) || undefined,
+    };
+    if (!body.nome || !body.preco) { toast('Preencha nome e preço.', 'warning'); return; }
+    const btn = document.getElementById('btn-salvar');
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    try {
+      if (currentId) await api.produtos.atualizar(currentId, body);
+      else           await api.produtos.cadastrar(body);
+      toast(currentId ? 'Produto atualizado!' : 'Produto cadastrado!', 'success');
+      closeModal('modal-produto');
+      load();
+    } catch(e) { toast('Erro: ' + e.message, 'error');
+    } finally { btn.disabled = false; btn.textContent = 'Salvar'; }
+  }
+
+  function excluir(id, nome) {
+    confirm(`Excluir o produto "${nome}"? Esta ação não pode ser desfeita.`, async () => {
+      try {
+        await api.produtos.deletar(id);
+        toast('Produto excluído!', 'success');
+        load();
+      } catch(e) { toast('Erro: ' + e.message, 'error'); }
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Histórico de Preço — StepUp Calçados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+  <style>
+    .price-timeline { display:flex; flex-direction:column; gap:0; }
+    .price-event {
+      display:flex; align-items:flex-start; gap:16px; padding:16px 0;
+      border-bottom:1px solid var(--gray-100); position:relative;
+    }
+    .price-event:last-child { border-bottom:none; }
+    .price-dot {
+      width:32px;height:32px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-size:14px;flex-shrink:0;margin-top:2px;
+    }
+    .price-dot.up   { background:var(--red-100); }
+    .price-dot.down { background:var(--green-100); }
+    .price-dot.same { background:var(--gray-100); }
+    .price-info { flex:1; }
+    .price-product { font-size:.875rem;font-weight:700;color:var(--gray-800); }
+    .price-values { display:flex;gap:12px;margin-top:4px;align-items:center; }
+    .price-old { font-size:.8rem;color:var(--gray-400);text-decoration:line-through; }
+    .price-new { font-size:.9rem;font-weight:700;color:var(--gray-800); }
+    .price-arrow { color:var(--gray-400);font-size:.8rem; }
+    .price-date { font-size:.75rem;color:var(--gray-400); }
+    .price-diff-up   { color:var(--red-500);font-size:.75rem;font-weight:700; }
+    .price-diff-down { color:var(--green-500);font-size:.75rem;font-weight:700; }
+  </style>
+</head>
+<body>
+<div id="sidebar-mount"></div>
+<div class="app-shell">
+  <div class="main-content">
+    <div id="topbar-mount"></div>
+    <div class="page-content">
+      <div class="page-header">
+        <div class="page-header-info">
+          <h2>Histórico de Preço</h2>
+          <p>Acompanhe as variações de preço dos produtos</p>
+        </div>
+        <button class="btn btn-primary" onclick="abrirNovo()">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Registrar Alteração
+        </button>
+      </div>
+
+      <div class="filter-bar">
+        <select class="form-control" id="filter-produto" style="max-width:280px" onchange="filtrar()">
+          <option value="">Todos os produtos</option>
+        </select>
+        <input type="text" class="form-control" id="search" placeholder="🔍 Buscar produto..." oninput="filtrar()">
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📈 Linha do Tempo de Preços</span>
+          <span id="count-label" style="font-size:.8rem;color:var(--gray-400)"></span>
+        </div>
+        <div class="card-body" id="timeline">
+          <div class="loading-overlay"><div class="spinner"></div></div>
+        </div>
+        <div id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h3 class="modal-title">Registrar Alteração de Preço</h3>
+      <button class="modal-close" onclick="closeModal('modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Produto *</label>
+          <select class="form-control" id="f-produto" onchange="carregarPrecoAtual()"></select>
+        </div>
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:12px;font-size:.875rem" id="preco-atual-box" style="display:none">
+          <span style="color:var(--gray-600)">Preço atual: </span>
+          <strong id="preco-atual-val">—</strong>
+        </div>
+        <div class="form-group">
+          <label>Novo Preço (R$) *</label>
+          <input type="number" class="form-control" id="f-preco" min="0" step="0.01" placeholder="0,00">
+        </div>
+        <div class="form-group">
+          <label>Motivo</label>
+          <input type="text" class="form-control" id="f-motivo" placeholder="Ex: Reajuste de fornecedor, Promoção...">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save" onclick="salvar()">Registrar</button>
+    </div>
+  </div>
+</div>
+<div id="toast-container" class="toast-container"></div>
+
+<script src="../js/api.js"></script>
+<script src="../js/ui.js"></script>
+<script>
+  checkAuth();
+  document.getElementById('sidebar-mount').innerHTML = buildSidebar('historico');
+  document.getElementById('topbar-mount').innerHTML = buildTopbar('Histórico de Preço');
+  populateUser(checkAuth());
+  initSidebar();
+
+  let all = [], allProdutos = [], page = 1;
+
+  async function load() {
+    try {
+      const [hr, pr] = await Promise.all([api.historicoPreco.listar(), api.produtos.listar()]);
+      all = hr?.dados || hr || [];
+      allProdutos = pr?.dados || pr || [];
+      popularSelects();
+      filtrar();
+    } catch(e) { toast('Erro: ' + e.message, 'error'); }
+  }
+
+  function popularSelects() {
+    const selF = document.getElementById('filter-produto');
+    const selM = document.getElementById('f-produto');
+    allProdutos.forEach(p => {
+      selF.innerHTML += `<option value="${p.id}">${p.nome}</option>`;
+      selM.innerHTML += `<option value="${p.id}" data-preco="${p.preco}">${p.nome}</option>`;
+    });
+  }
+
+  function getNomeProduto(id) {
+    const p = allProdutos.find(x => x.id == id);
+    return p?.nome || `Produto #${id}`;
+  }
+
+  function carregarPrecoAtual() {
+    const sel = document.getElementById('f-produto');
+    const opt = sel.selectedOptions[0];
+    const preco = parseFloat(opt?.dataset?.preco || 0);
+    const box   = document.getElementById('preco-atual-box');
+    box.style.display = opt?.value ? 'block' : 'none';
+    document.getElementById('preco-atual-val').textContent = brl(preco);
+  }
+
+  function filtrar() {
+    const q   = document.getElementById('search').value.toLowerCase();
+    const pid = document.getElementById('filter-produto').value;
+    const filtered = all.filter(h => {
+      const nome = getNomeProduto(h.id_produto).toLowerCase();
+      return (!q || nome.includes(q)) && (!pid || String(h.id_produto) === String(pid));
+    });
+    renderTimeline(filtered);
+  }
+
+  function renderTimeline(items) {
+    const { items: pg, total, pages } = paginate(items, page, 15);
+    document.getElementById('count-label').textContent = `${total} registro(s)`;
+    const tl = document.getElementById('timeline');
+    if (!pg.length) {
+      tl.innerHTML = `<div class="empty-state"><div class="es-icon">📈</div><h3>Nenhum histórico encontrado</h3></div>`;
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+    tl.innerHTML = `<div class="price-timeline">${pg.map((h, idx) => {
+      const prev = items[idx + 1];
+      const novo  = parseFloat(h.preco_novo||h.preco||0);
+      const ant   = parseFloat(h.preco_anterior||prev?.preco_novo||0);
+      const diff  = novo - ant;
+      const pct   = ant > 0 ? ((diff/ant)*100).toFixed(1) : null;
+      const dir   = diff > 0 ? 'up' : diff < 0 ? 'down' : 'same';
+      const icon  = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '=';
+      return `<div class="price-event">
+        <div class="price-dot ${dir}">${icon}</div>
+        <div class="price-info">
+          <div class="price-product">${getNomeProduto(h.id_produto)}</div>
+          <div class="price-values">
+            ${ant > 0 ? `<span class="price-old">${brl(ant)}</span><span class="price-arrow">→</span>` : ''}
+            <span class="price-new">${brl(novo)}</span>
+            ${pct && ant>0 ? `<span class="${dir==='up'?'price-diff-up':'price-diff-down'}">(${dir==='up'?'+':''}${pct}%)</span>` : ''}
+          </div>
+          ${h.motivo ? `<div style="font-size:.75rem;color:var(--gray-400);margin-top:4px">📝 ${h.motivo}</div>` : ''}
+        </div>
+        <div class="price-date">${dateTimeStr(h.created_at||h.data)}</div>
+      </div>`;
+    }).join('')}</div>`;
+    renderPagination(document.getElementById('pagination'), { total, page, pages, onPage: p => { page=p; filtrar(); }});
+  }
+
+  function abrirNovo() {
+    document.getElementById('f-produto').value = '';
+    document.getElementById('f-preco').value   = '';
+    document.getElementById('f-motivo').value  = '';
+    document.getElementById('preco-atual-box').style.display = 'none';
+    openModal('modal');
+  }
+
+  async function salvar() {
+    const id_produto  = parseInt(document.getElementById('f-produto').value);
+    const preco_novo  = parseFloat(document.getElementById('f-preco').value);
+    const motivo      = document.getElementById('f-motivo').value.trim() || undefined;
+    if (!id_produto || !preco_novo) { toast('Preencha produto e novo preço.', 'warning'); return; }
+    const btn = document.getElementById('btn-save');
+    btn.disabled = true; btn.textContent = 'Registrando...';
+    try {
+      await api.historicoPreco.registrar({ id_produto, preco_novo, motivo });
+      toast('Alteração de preço registrada!', 'success');
+      closeModal('modal');
+      load();
+    } catch(e) { toast('Erro: ' + e.message, 'error');
+    } finally { btn.disabled = false; btn.textContent = 'Registrar'; }
+  }
+
+  load();
+</script>
+</body>
+</html>

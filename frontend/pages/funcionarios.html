@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Funcionários — StepUp Calçados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/global.css">
+  <style>
+    .func-card { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+    .func-item {
+      background:var(--white); border:1px solid var(--gray-200); border-radius:12px;
+      padding:20px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px;
+    }
+    .func-top { display:flex; align-items:center; gap:14px; }
+    .func-avatar {
+      width:48px;height:48px;border-radius:50%;background:var(--blue-600);
+      color:var(--white);display:flex;align-items:center;justify-content:center;
+      font-size:1.2rem;font-weight:800;flex-shrink:0;
+    }
+    .func-nome { font-size:.95rem;font-weight:700;color:var(--gray-800); }
+    .func-cargo { font-size:.8rem;color:var(--gray-400);margin-top:2px; }
+    .func-info { display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--gray-100);padding-top:12px; }
+    .func-info-row { display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--gray-600); }
+    .func-info-row span { font-weight:500;color:var(--gray-800); }
+    .func-actions { display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--gray-100);padding-top:12px; }
+  </style>
+</head>
+<body>
+<div id="sidebar-mount"></div>
+<div class="app-shell">
+  <div class="main-content">
+    <div id="topbar-mount"></div>
+    <div class="page-content">
+      <div class="page-header">
+        <div class="page-header-info">
+          <h2>Funcionários</h2>
+          <p>Gerencie a equipe da loja</p>
+        </div>
+        <button class="btn btn-primary" onclick="abrirNovo()">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Novo Funcionário
+        </button>
+      </div>
+
+      <div class="filter-bar">
+        <input type="text" class="form-control" id="search" placeholder="🔍 Buscar por nome ou cargo...">
+      </div>
+
+      <div id="cards-grid" class="func-card"></div>
+      <div id="empty"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title" id="m-title">Novo Funcionário</h3>
+      <button class="modal-close" onclick="closeModal('modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Nome Completo *</label>
+          <input type="text" class="form-control" id="f-nome" placeholder="Nome do funcionário">
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label>E-mail *</label>
+            <input type="email" class="form-control" id="f-email" placeholder="email@loja.com">
+          </div>
+          <div class="form-group">
+            <label>Senha <span id="senha-hint" style="font-weight:400;color:var(--gray-400)">(obrigatória para novo)</span></label>
+            <input type="password" class="form-control" id="f-senha" placeholder="••••••••">
+          </div>
+        </div>
+        <div class="form-grid form-grid-2">
+          <div class="form-group">
+            <label>Cargo</label>
+            <input type="text" class="form-control" id="f-cargo" placeholder="Ex: Vendedor, Gerente">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" class="form-control" id="f-telefone" placeholder="(11) 99999-9999">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirm-overlay">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-body" style="text-align:center;padding:32px 24px">
+      <div style="font-size:40px;margin-bottom:12px">🗑️</div>
+      <strong style="display:block;font-size:1rem;margin-bottom:8px">Excluir Funcionário</strong>
+      <p id="confirm-text"></p>
+    </div>
+    <div class="modal-footer" style="justify-content:center">
+      <button class="btn btn-outline" onclick="closeModal('confirm-overlay')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-ok">Excluir</button>
+    </div>
+  </div>
+</div>
+<div id="toast-container" class="toast-container"></div>
+
+<script src="../js/api.js"></script>
+<script src="../js/ui.js"></script>
+<script>
+  checkAuth();
+  document.getElementById('sidebar-mount').innerHTML = buildSidebar('funcionarios');
+  document.getElementById('topbar-mount').innerHTML = buildTopbar('Funcionários');
+  populateUser(checkAuth());
+  initSidebar();
+
+  let all = [], currentId = null;
+
+  async function load() {
+    document.getElementById('cards-grid').innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
+    try {
+      const r = await api.funcionarios.listar();
+      all = r?.dados || r || [];
+      render();
+    } catch(e) { toast('Erro: ' + e.message, 'error'); }
+  }
+
+  function filtered() {
+    const q = document.getElementById('search').value.toLowerCase();
+    return all.filter(f => !q || (f.nome||'').toLowerCase().includes(q) || (f.cargo||'').toLowerCase().includes(q));
+  }
+
+  function render() {
+    const items = filtered();
+    const grid = document.getElementById('cards-grid');
+    if (!items.length) {
+      grid.innerHTML = '';
+      document.getElementById('empty').innerHTML = `<div class="empty-state"><div class="es-icon">👥</div><h3>Nenhum funcionário encontrado</h3><p>Adicione o primeiro funcionário da sua equipe.</p></div>`;
+      return;
+    }
+    document.getElementById('empty').innerHTML = '';
+    grid.innerHTML = items.map(f => {
+      const inicial = (f.nome||f.email||'F')[0].toUpperCase();
+      return `<div class="func-item">
+        <div class="func-top">
+          <div class="func-avatar">${inicial}</div>
+          <div>
+            <div class="func-nome">${f.nome || '-'}</div>
+            <div class="func-cargo">${f.cargo || 'Funcionário'}</div>
+          </div>
+        </div>
+        <div class="func-info">
+          <div class="func-info-row">📧 <span>${f.email || '-'}</span></div>
+          ${f.telefone ? `<div class="func-info-row">📱 <span>${f.telefone}</span></div>` : ''}
+        </div>
+        <div class="func-actions">
+          <button class="btn btn-outline btn-sm" onclick="editar(${f.id})">✏️ Editar</button>
+          <button class="btn btn-danger btn-sm" onclick="excluir(${f.id}, '${(f.nome||'').replace(/'/g,"\\'")}')">🗑️</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('search').addEventListener('input', render);
+
+  function abrirNovo() {
+    currentId = null;
+    document.getElementById('m-title').textContent = 'Novo Funcionário';
+    document.getElementById('senha-hint').textContent = '(obrigatória)';
+    ['nome','email','senha','cargo','telefone'].forEach(f => document.getElementById('f-'+f).value = '');
+    openModal('modal');
+  }
+
+  async function editar(id) {
+    try {
+      const r = await api.funcionarios.buscar(id);
+      const f = r?.dados || r;
+      currentId = id;
+      document.getElementById('m-title').textContent = 'Editar Funcionário';
+      document.getElementById('senha-hint').textContent = '(deixe vazio para manter)';
+      document.getElementById('f-nome').value     = f.nome     || '';
+      document.getElementById('f-email').value    = f.email    || '';
+      document.getElementById('f-senha').value    = '';
+      document.getElementById('f-cargo').value    = f.cargo    || '';
+      document.getElementById('f-telefone').value = f.telefone || '';
+      openModal('modal');
+    } catch(e) { toast('Erro: ' + e.message, 'error'); }
+  }
+
+  async function salvar() {
+    const nome     = document.getElementById('f-nome').value.trim();
+    const email    = document.getElementById('f-email').value.trim();
+    const senha    = document.getElementById('f-senha').value;
+    const cargo    = document.getElementById('f-cargo').value.trim()    || undefined;
+    const telefone = document.getElementById('f-telefone').value.trim() || undefined;
+    if (!nome || !email) { toast('Preencha nome e e-mail.', 'warning'); return; }
+    if (!currentId && !senha) { toast('Informe a senha para novo funcionário.', 'warning'); return; }
+    const body = { nome, email, cargo, telefone };
+    if (senha) body.senha = senha;
+    const btn = document.getElementById('btn-save');
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    try {
+      if (currentId) await api.funcionarios.atualizar(currentId, body);
+      else           await api.funcionarios.cadastrar(body);
+      toast('Funcionário salvo!', 'success');
+      closeModal('modal');
+      load();
+    } catch(e) { toast('Erro: ' + e.message, 'error');
+    } finally { btn.disabled = false; btn.textContent = 'Salvar'; }
+  }
+
+  function excluir(id, nome) {
+    confirm(`Excluir o funcionário "${nome}"?`, async () => {
+      try { await api.funcionarios.deletar(id); toast('Funcionário excluído!', 'success'); load(); }
+      catch(e) { toast('Erro: ' + e.message, 'error'); }
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>
